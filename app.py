@@ -1,67 +1,41 @@
 import streamlit as st
+import re
 import pandas as pd
-from io import StringIO, BytesIO
+from io import StringIO
 
-# -------------------------------
-# Title
-# -------------------------------
-st.title("📅 Date Range Data Extractor")
-st.write("Upload your CSV → Select date range → Download filtered data")
+st.title("WhatsApp Group Join/Left Tracker (Date Filter)")
 
-# -------------------------------
-# Upload Section
-# -------------------------------
-uploaded_file = st.file_uploader("Upload your CSV file", type=["csv"])
+uploaded_file = st.file_uploader("Upload WhatsApp .txt chat file", type=["txt"])
 
-# Date Inputs
-start_date = st.date_input("Start date")
-end_date = st.date_input("End date")
+start_date = st.date_input("Start Date")
+end_date = st.date_input("End Date")
 
-# -------------------------------
-# Processing
-# -------------------------------
 if uploaded_file:
-    # Read CSV
-    df = pd.read_csv(uploaded_file)
+    text = uploaded_file.read().decode("utf-8")
 
-    # Ensure date column exists
-    if "date" not in df.columns:
-        st.error("❌ No 'date' column found in the uploaded file.")
-        st.stop()
+    # WhatsApp pattern
+    pattern = r"(\d{1,2}/\d{1,2}/\d{4}), (\d{1,2}:\d{2}) - (.*)"
 
-    # Convert to datetime
-    df['date'] = pd.to_datetime(df['date'], errors='coerce')
+    rows = []
 
-    # Filter by date range
-    mask = (df['date'] >= pd.to_datetime(start_date)) & (df['date'] <= pd.to_datetime(end_date))
-    filtered_df = df.loc[mask]
+    for line in text.split("\n"):
+        match = re.match(pattern, line)
+        if match:
+            date, time, message = match.groups()
+            full_datetime = pd.to_datetime(date + " " + time)
 
-    # Display Results
-    st.subheader("📊 Filtered Data")
-    st.dataframe(filtered_df)
+            # Only detect join/left messages
+            if "added" in message.lower() or "left" in message.lower() or "removed" in message.lower():
+                rows.append([full_datetime, message])
 
-    # -------------------------------
-    # CSV Download
-    # -------------------------------
-    csv_data = filtered_df.to_csv(index=False)
+    df = pd.DataFrame(rows, columns=["datetime", "message"])
 
-    st.download_button(
-        label="⬇ Download Filtered CSV",
-        data=csv_data,
-        file_name="filtered_data.csv",
-        mime="text/csv"
-    )
+    # Apply date filter
+    mask = (df["datetime"].dt.date >= start_date) & (df["datetime"].dt.date <= end_date)
+    filtered_df = df[mask]
 
-    # -------------------------------
-    # XLSX Download
-    # -------------------------------
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        filtered_df.to_excel(writer, index=False)
+    st.write("Filtered Results", filtered_df)
 
-    st.download_button(
-        label="⬇ Download Filtered Excel (XLSX)",
-        data=output.getvalue(),
-        file_name="filtered_data.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+    # Download
+    csv = filtered_df.to_csv(index=False)
+    st.download_button("Download Filtered Data", csv, "filtered_data.csv")
